@@ -22,72 +22,107 @@
 
         <!-- Recommended Bets Tab -->
         <section id="recommended" class="tab-content active">
-            <div class="section-header">
-                <h2>Today's Value Bets</h2>
-                <div class="filters">
-                    <select id="sportFilter">
-                        <option value="all">All Sports</option>
-                        <option value="mlb">MLB</option>
-                        <option value="nba">NBA</option>
-                        <option value="ncaab">College Basketball</option>
-                        <option value="nfl">NFL</option>
-                    </select>
-                    <select id="categoryFilter">
-                        <option value="all">All Bet Types</option>
-                        <option value="game">Game Outcomes</option>
-                        <option value="player_prop">Player Props</option>
-                        <option value="derivative">Derivatives (1H, Alt)</option>
-                        <option value="future">Futures</option>
-                        <option value="live">Live Bets</option>
-                    </select>
-                    <select id="evFilter">
-                        <option value="all">All EV</option>
-                        <option value="high">High EV (5%+)</option>
-                        <option value="medium">Medium EV (2-5%)</option>
-                    </select>
+            <!-- Compact Header with Stats -->
+            <div class="dashboard-header">
+                <div class="header-left">
+                    <h2>Value Bets</h2>
+                    <div class="header-stats">
+                        <div class="mini-stat">
+                            <span class="mini-stat-value" id="totalBets">0</span>
+                            <span class="mini-stat-label">Bets</span>
+                        </div>
+                        <div class="mini-stat">
+                            <span class="mini-stat-value" id="avgEV">0%</span>
+                            <span class="mini-stat-label">Avg EV</span>
+                        </div>
+                        <div class="mini-stat profit">
+                            <span class="mini-stat-value" id="potentialProfit">$0</span>
+                            <span class="mini-stat-label">Potential</span>
+                        </div>
+                    </div>
                 </div>
-            </div>
-
-            <!-- API Status -->
-            <div class="api-status" id="apiStatus">
-                <span class="status-dot"></span>
-                <span>Demo Mode - Add API key for live odds</span>
-                <button class="api-btn" onclick="showApiModal()">Connect API</button>
-            </div>
-
-            <div class="stats-row">
-                <div class="stat-card">
-                    <span class="stat-value" id="totalBets">0</span>
-                    <span class="stat-label">Value Bets Found</span>
-                </div>
-                <div class="stat-card">
-                    <span class="stat-value" id="avgEV">0%</span>
-                    <span class="stat-label">Average EV</span>
-                </div>
-                <div class="stat-card">
-                    <span class="stat-value" id="potentialProfit">$0</span>
-                    <span class="stat-label">Potential Profit ($100/bet)</span>
+                <div class="header-right">
+                    <div class="bankroll-input-wrapper">
+                        <label for="mainBankroll">Bankroll</label>
+                        <div class="bankroll-field">
+                            <span class="currency-symbol">$</span>
+                            <input type="number" id="mainBankroll" value="1000" min="100" step="100" onchange="updateBetSizes()">
+                        </div>
+                    </div>
+                    <div class="status-indicator" id="apiStatus">
+                        <span class="status-dot"></span>
+                        <span>Demo</span>
+                        <button class="icon-btn" onclick="showApiModal()" title="Connect API">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                        </button>
+                    </div>
+                    <span class="timestamp" id="lastUpdated">--</span>
                 </div>
             </div>
 
             <div class="bets-table-container">
-                <table class="bets-table">
-                    <thead>
-                        <tr>
-                            <th>Type</th>
-                            <th>Event</th>
-                            <th>Selection</th>
-                            <th>Odds Comparison</th>
-                            <th>Edge</th>
-                            <th>EV%</th>
-                            <th>Profit ($100)</th>
-                            <th>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody id="betsTableBody">
-                        <!-- Populated by JavaScript -->
-                    </tbody>
-                </table>
+                <!-- Inline Filters Row -->
+                <div class="table-controls">
+                    <div class="filter-chips">
+                        <select id="sportFilter" class="chip-select">
+                            <option value="all">All Sports</option>
+                            <option value="nfl">NFL</option>
+                            <option value="ncaaf">NCAAF</option>
+                            <option value="nba">NBA</option>
+                            <option value="ncaab">NCAAB</option>
+                            <option value="mlb">MLB</option>
+                            <option value="nhl">NHL</option>
+                            <option value="soccer">Soccer</option>
+                        </select>
+                        <select id="categoryFilter" class="chip-select">
+                            <option value="all">All Types</option>
+                            <option value="game">Game</option>
+                            <option value="player_prop">Props</option>
+                            <option value="derivative">Derivatives</option>
+                            <option value="future">Futures</option>
+                            <option value="live">Live</option>
+                        </select>
+                        <select id="evFilter" class="chip-select">
+                            <option value="all">All EV</option>
+                            <option value="high">5%+ EV</option>
+                            <option value="medium">2-5% EV</option>
+                        </select>
+                        <button class="reset-chip" onclick="resetFilters()" id="resetBtn" style="display:none;">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                            Clear
+                        </button>
+                    </div>
+                    <div class="sort-control">
+                        <span class="sort-label">Sort:</span>
+                        <select id="sortBy" class="sort-select">
+                            <option value="ev">EV %</option>
+                            <option value="edge">Edge</option>
+                            <option value="profit">Profit</option>
+                            <option value="confidence">Confidence</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="table-scroll">
+                    <table class="bets-table">
+                        <thead>
+                            <tr>
+                                <th>Type</th>
+                                <th>Event</th>
+                                <th>Selection</th>
+                                <th>Odds</th>
+                                <th>Edge</th>
+                                <th>EV%</th>
+                                <th>Kelly Bet</th>
+                                <th>Exp. Profit</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="betsTableBody">
+                            <!-- Populated by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
             </div>
 
             <!-- Odds Comparison Detail Modal -->
@@ -106,11 +141,12 @@
                     <h3>Connect to The Odds API</h3>
                     <p>Get real-time odds from 70+ sportsbooks. Free tier: 500 requests/month.</p>
                     <div class="input-group">
-                        <label for="apiKeyInput">API Key</label>
-                        <input type="text" id="apiKeyInput" placeholder="Enter your API key">
+                        <label for="apiKeyInput">API Key or JSON Data</label>
+                        <textarea id="apiKeyInput" rows="3" placeholder="Paste your API key here, or paste raw JSON data from the API"></textarea>
                     </div>
                     <p class="api-signup">Don't have a key? <a href="https://the-odds-api.com/" target="_blank">Sign up free at The Odds API</a></p>
-                    <button class="calc-btn" onclick="connectApi()">Connect & Fetch Live Odds</button>
+                    <p class="api-signup">Or test the API directly: <code>curl "https://api.the-odds-api.com/v4/sports/upcoming/odds/?apiKey=YOUR_KEY&regions=us&markets=h2h"</code></p>
+                    <button class="calc-btn" onclick="connectApi()">Load Data</button>
                 </div>
             </div>
         </section>

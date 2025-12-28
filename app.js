@@ -363,13 +363,84 @@ function americanToDecimal(odds) {
     }
 }
 
+// Calculate Kelly Criterion bet size
+// Returns { fraction, amount, capped }
+// Uses fractional Kelly (25%) for safety
+function calculateKellyBetSize(odds, trueProb, bankroll) {
+    const decimalOdds = americanToDecimal(odds);
+    const b = decimalOdds - 1; // Net odds (what you win per $1 bet)
+    const p = trueProb;
+    const q = 1 - p;
+
+    // Full Kelly formula: f* = (bp - q) / b
+    const fullKelly = Math.max(0, (b * p - q) / b);
+
+    // Use quarter Kelly for safety (industry standard for variance reduction)
+    const quarterKelly = fullKelly * 0.25;
+
+    // Cap at 5% of bankroll max (never bet more than 5%)
+    const cappedFraction = Math.min(quarterKelly, 0.05);
+    const amount = bankroll * cappedFraction;
+
+    return {
+        fraction: cappedFraction,
+        fullKellyFraction: fullKelly,
+        amount: amount,
+        capped: cappedFraction < quarterKelly // Was it capped at 5%?
+    };
+}
+
+// Get current bankroll from input
+function getBankroll() {
+    const input = document.getElementById('mainBankroll');
+    return parseFloat(input?.value) || 1000;
+}
+
+// Update all bet sizes when bankroll changes
+function updateBetSizes() {
+    const filtered = getFilteredBets();
+    renderBets(filtered);
+}
+
+// Store current displayed bets for modal reference
+let currentDisplayedBets = [];
+
 // Render bets table with detailed odds comparison and place bet buttons
 function renderBets(bets) {
     const tbody = document.getElementById('betsTableBody');
     tbody.innerHTML = '';
 
-    bets.forEach((bet, index) => {
-        const profit = calculateProfit(bet.odds, 100);
+    // Get sort preference
+    const sortBy = document.getElementById('sortBy')?.value || 'ev';
+
+    // Sort bets based on selection
+    const sortedBets = [...bets].sort((a, b) => {
+        switch(sortBy) {
+            case 'ev':
+                return b.ev - a.ev;
+            case 'profit':
+                return calculateProfit(b.odds, 100) - calculateProfit(a.odds, 100);
+            case 'confidence':
+                return b.confidence - a.confidence;
+            case 'edge':
+                const edgeA = americanToProb(a.sharpOdds) - americanToProb(a.odds);
+                const edgeB = americanToProb(b.sharpOdds) - americanToProb(b.odds);
+                return edgeB - edgeA;
+            default:
+                return b.ev - a.ev;
+        }
+    });
+
+    // Store for modal reference
+    currentDisplayedBets = sortedBets;
+
+    const bankroll = getBankroll();
+
+    sortedBets.forEach((bet, index) => {
+        // Calculate Kelly bet size
+        const kelly = calculateKellyBetSize(bet.odds, bet.trueProb, bankroll);
+        const expectedProfit = kelly.amount * (bet.ev / 100);
+
         const sharpOddsStr = bet.sharpOdds > 0 ? `+${bet.sharpOdds}` : bet.sharpOdds;
         const softOddsStr = bet.odds > 0 ? `+${bet.odds}` : bet.odds;
         const edge = ((americanToProb(bet.sharpOdds) - americanToProb(bet.odds)) * 100).toFixed(1);
@@ -415,7 +486,13 @@ function renderBets(bets) {
             </td>
             <td class="edge-value">+${edge}%</td>
             <td class="${bet.ev > 0 ? 'ev-positive' : 'ev-negative'}">+${bet.ev.toFixed(1)}%</td>
-            <td class="profit-value">+$${profit.toFixed(2)}</td>
+            <td>
+                <div class="kelly-bet">
+                    <span class="kelly-amount">$${kelly.amount.toFixed(0)}</span>
+                    <span class="kelly-percent">${(kelly.fraction * 100).toFixed(1)}% of bank</span>
+                </div>
+            </td>
+            <td class="profit-value">+$${expectedProfit.toFixed(2)}</td>
             <td>
                 <a href="${bookUrl}" target="_blank" class="place-bet-btn">
                     Place Bet
@@ -430,7 +507,7 @@ function renderBets(bets) {
 
 // Show detailed odds comparison modal
 function showOddsDetail(betIndex) {
-    const bet = getFilteredBets()[betIndex];
+    const bet = currentDisplayedBets[betIndex];
     const modal = document.getElementById('oddsModal');
     const title = document.getElementById('modalTitle');
     const body = document.getElementById('modalBody');
@@ -547,15 +624,50 @@ let apiKey = localStorage.getItem('oddsApiKey') || '';
 
 async function connectApi() {
     const keyInput = document.getElementById('apiKeyInput');
-    apiKey = keyInput.value.trim();
+    const inputValue = keyInput.value.trim();
+
+    // Check if user pasted JSON data directly
+    if (inputValue.startsWith('[') || inputValue.startsWith('{')) {
+        try {
+            const data = JSON.parse(inputValue);
+            const dataArray = Array.isArray(data) ? data : [data];
+            closeApiModal();
+            processLiveOdds(dataArray);
+            document.getElementById('apiStatus').innerHTML = `
+                <span class="status-dot connected"></span>
+                <span>Loaded ${dataArray.length} games from pasted data</span>
+            `;
+            updateTimestamp();
+            return;
+        } catch (e) {
+            alert('Invalid JSON data. Please check the format.');
+            return;
+        }
+    }
+
+    // Otherwise treat as API key
+    apiKey = inputValue;
 
     if (!apiKey) {
         alert('Please enter an API key');
         return;
     }
 
+    // Validate API key format (should be alphanumeric, typically 32 chars)
+    if (apiKey.length < 20 || !/^[a-zA-Z0-9]+$/.test(apiKey)) {
+        alert('Invalid API key format. Please check your key.');
+        return;
+    }
+
     localStorage.setItem('oddsApiKey', apiKey);
     closeApiModal();
+
+    // Show loading state immediately
+    document.getElementById('apiStatus').innerHTML = `
+        <span class="status-dot loading"></span>
+        <span>Connecting...</span>
+    `;
+
     await fetchLiveOdds();
 }
 
@@ -569,34 +681,158 @@ async function fetchLiveOdds() {
         <span>Fetching live odds...</span>
     `;
 
-    try {
-        // Fetch NBA odds as example
-        const response = await fetch(
-            `https://api.the-odds-api.com/v4/sports/basketball_nba/odds/?apiKey=${apiKey}&regions=us&markets=h2h,spreads,totals&oddsFormat=american`
-        );
+    // Sports to fetch - US leagues only (better data, more exploitable lines)
+    const sportsToFetch = [
+        'americanfootball_nfl',
+        'americanfootball_ncaaf',
+        'basketball_nba',
+        'basketball_ncaab',
+        'icehockey_nhl',
+        'baseball_mlb'
+    ];
 
-        if (!response.ok) {
-            throw new Error('API request failed');
+    // Player prop markets by sport - where 70% of +EV value exists!
+    const propMarkets = {
+        'basketball_nba': 'player_points,player_rebounds,player_assists,player_threes',
+        'basketball_ncaab': 'player_points,player_rebounds,player_assists',
+        'americanfootball_nfl': 'player_pass_yds,player_rush_yds,player_reception_yds,player_receptions,player_pass_tds,player_anytime_td',
+        'americanfootball_ncaaf': 'player_pass_yds,player_rush_yds,player_reception_yds',
+        'baseball_mlb': 'pitcher_strikeouts,batter_hits,batter_total_bases,batter_rbis,batter_runs_scored',
+        'icehockey_nhl': 'player_points,player_shots_on_goal'
+    };
+
+    let allData = [];
+    let remaining = null;
+    let lastError = null;
+    let successfulFetches = 0;
+
+    try {
+        // Fetch from each sport - both h2h and player props
+        for (const sport of sportsToFetch) {
+            // Fetch game lines (h2h)
+            try {
+                const response = await fetch(
+                    `https://api.the-odds-api.com/v4/sports/${sport}/odds/?apiKey=${apiKey}&regions=us,us2&markets=h2h&oddsFormat=american&bookmakers=pinnacle,circa,fanduel,draftkings,betmgm,caesars,pointsbetus,betrivers,bovada`
+                );
+
+                // Get remaining requests from headers regardless of status
+                const reqRemaining = response.headers.get('x-requests-remaining');
+                if (reqRemaining) remaining = reqRemaining;
+
+                if (response.ok) {
+                    const data = await response.json();
+                    data.forEach(g => g._marketType = 'h2h');
+                    allData = allData.concat(data);
+                    successfulFetches++;
+                    console.log(`Fetched ${data.length} games (h2h) from ${sport}`);
+                } else {
+                    // Capture the error for better messaging
+                    const errorData = await response.json().catch(() => ({}));
+                    lastError = {
+                        status: response.status,
+                        message: errorData.message || response.statusText
+                    };
+                    console.log(`API error for ${sport}: ${response.status} - ${lastError.message}`);
+
+                    // If unauthorized or forbidden, stop trying
+                    if (response.status === 401 || response.status === 403) {
+                        throw new Error(`API Key Invalid: ${lastError.message}`);
+                    }
+                    // If rate limited, stop trying
+                    if (response.status === 429) {
+                        throw new Error('Rate limit exceeded. Try again later.');
+                    }
+                }
+            } catch (e) {
+                if (e.message.includes('API Key') || e.message.includes('Rate limit')) {
+                    throw e; // Re-throw critical errors
+                }
+                console.log(`Skipping ${sport} h2h: ${e.message}`);
+            }
+
+            // Fetch player props (where most value is!)
+            // Only skip if we know we're low on requests
+            const shouldFetchProps = propMarkets[sport] &&
+                (remaining === null || parseInt(remaining) > 20);
+
+            if (shouldFetchProps) {
+                try {
+                    const response = await fetch(
+                        `https://api.the-odds-api.com/v4/sports/${sport}/odds/?apiKey=${apiKey}&regions=us,us2&markets=${propMarkets[sport]}&oddsFormat=american&bookmakers=pinnacle,fanduel,draftkings,betmgm,caesars,pointsbetus,betrivers`
+                    );
+
+                    const reqRemaining = response.headers.get('x-requests-remaining');
+                    if (reqRemaining) remaining = reqRemaining;
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        data.forEach(g => g._marketType = 'player_prop');
+                        allData = allData.concat(data);
+                        successfulFetches++;
+                        console.log(`Fetched ${data.length} games (props) from ${sport}`);
+                    }
+                } catch (e) {
+                    console.log(`Skipping ${sport} props: ${e.message}`);
+                }
+            }
+
+            // Stop if we're running low on API calls
+            if (remaining && parseInt(remaining) < 10) {
+                console.log('Low on API requests, stopping fetch');
+                break;
+            }
         }
 
-        const data = await response.json();
-        const remaining = response.headers.get('x-requests-remaining');
+        console.log(`Total: ${allData.length} game records, ${remaining} API requests remaining`);
 
-        statusEl.innerHTML = `
-            <span class="status-dot connected"></span>
-            <span>Live - ${remaining} requests remaining</span>
-            <button class="api-btn" onclick="fetchLiveOdds()">Refresh</button>
-        `;
+        // If we had successful fetches but no data, that's okay (no games right now)
+        if (successfulFetches === 0 && lastError) {
+            throw new Error(lastError.message || 'Failed to fetch data');
+        }
+
+        if (allData.length === 0) {
+            // No error, just no games available right now
+            statusEl.innerHTML = `
+                <span class="status-dot connected"></span>
+                <span>Connected - No games available</span>
+                <button class="icon-btn" onclick="fetchLiveOdds()" title="Refresh">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+                </button>
+            `;
+            return;
+        }
 
         // Process and display live odds
-        processLiveOdds(data);
+        processLiveOdds(allData);
+
+        // Update status
+        statusEl.innerHTML = `
+            <span class="status-dot connected"></span>
+            <span>Live - ${remaining || '?'} requests left</span>
+            <button class="icon-btn" onclick="fetchLiveOdds()" title="Refresh">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+            </button>
+        `;
 
     } catch (error) {
         console.error('API Error:', error);
+
+        // Provide specific error messages
+        let errorMsg = 'Error - check API key';
+        if (error.message.includes('API Key')) {
+            errorMsg = 'Invalid API key';
+        } else if (error.message.includes('Rate limit')) {
+            errorMsg = 'Rate limit exceeded';
+        } else if (error.message.includes('Failed to fetch')) {
+            errorMsg = 'Network error';
+        }
+
         statusEl.innerHTML = `
             <span class="status-dot error"></span>
-            <span>Error connecting - check API key</span>
-            <button class="api-btn" onclick="showApiModal()">Reconnect</button>
+            <span>${errorMsg}</span>
+            <button class="icon-btn" onclick="showApiModal()" title="Reconnect">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+            </button>
         `;
     }
 }
@@ -607,78 +843,276 @@ function processLiveOdds(data) {
 
     const liveValueBets = [];
 
+    // Sport key mapping - comprehensive list
+    const sportMap = {
+        // American Football
+        'americanfootball_nfl': { key: 'nfl', name: 'NFL' },
+        'americanfootball_ncaaf': { key: 'ncaaf', name: 'NCAAF' },
+        // Basketball
+        'basketball_nba': { key: 'nba', name: 'NBA' },
+        'basketball_ncaab': { key: 'ncaab', name: 'NCAAB' },
+        'basketball_euroleague': { key: 'nba', name: 'EuroLeague' },
+        // Baseball
+        'baseball_mlb': { key: 'mlb', name: 'MLB' },
+        // Hockey
+        'icehockey_nhl': { key: 'nhl', name: 'NHL' },
+        'icehockey_sweden_hockey_league': { key: 'nhl', name: 'SHL' },
+        // Soccer
+        'soccer_epl': { key: 'soccer', name: 'EPL' },
+        'soccer_italy_serie_a': { key: 'soccer', name: 'Serie A' },
+        'soccer_australia_aleague': { key: 'soccer', name: 'A-League' },
+        'soccer_spain_la_liga': { key: 'soccer', name: 'La Liga' },
+        'soccer_germany_bundesliga': { key: 'soccer', name: 'Bundesliga' },
+        'soccer_france_ligue_one': { key: 'soccer', name: 'Ligue 1' },
+        'soccer_uefa_champs_league': { key: 'soccer', name: 'UCL' },
+        'soccer_usa_mls': { key: 'soccer', name: 'MLS' },
+        'soccer_africa_cup_of_nations': { key: 'soccer', name: 'AFCON' },
+        // Cricket - skip these (different betting format)
+        'cricket_big_bash': { key: 'skip', name: 'Cricket' },
+        'cricket_international_t20': { key: 'skip', name: 'Cricket' }
+    };
+
+    // Player prop market display names
+    const propMarketNames = {
+        'player_points': 'Points',
+        'player_rebounds': 'Rebounds',
+        'player_assists': 'Assists',
+        'player_threes': '3-Pointers',
+        'player_pass_yds': 'Pass Yds',
+        'player_rush_yds': 'Rush Yds',
+        'player_reception_yds': 'Rec Yds',
+        'player_receptions': 'Receptions',
+        'player_pass_tds': 'Pass TDs',
+        'player_anytime_td': 'Anytime TD',
+        'pitcher_strikeouts': 'Strikeouts',
+        'batter_hits': 'Hits',
+        'batter_total_bases': 'Total Bases',
+        'batter_rbis': 'RBIs',
+        'batter_runs_scored': 'Runs',
+        'player_shots_on_goal': 'Shots'
+    };
+
+    // SHARP BOOKS - Use as the "true odds" benchmark
+    const sharpBookOrder = [
+        'pinnacle',     // #1 - The gold standard
+        'circa',        // #2 - Sharpest US book
+        'bookmaker'     // #3 - Sharp offshore book
+    ];
+
+    // SOFT BOOKS - Where value exists
+    const softBookKeys = [
+        'fanduel',
+        'draftkings',
+        'betmgm',
+        'caesars',
+        'pointsbetus',
+        'betrivers',
+        'bovada'
+    ];
+
+    const now = new Date();
+
     data.forEach(game => {
         const bookmakers = game.bookmakers;
         if (!bookmakers || bookmakers.length < 2) return;
 
-        // Find Pinnacle (sharp) and soft books
-        const pinnacle = bookmakers.find(b => b.key === 'pinnacle');
+        // Check if game is in the future (not started yet)
+        const gameTime = new Date(game.commence_time);
+        const hoursUntilGame = (gameTime - now) / (1000 * 60 * 60);
+
+        // Skip games that have already started or are too far out
+        if (hoursUntilGame < -0.5 || hoursUntilGame > 168) return;
+
+        // Get sport info
+        const sportInfo = sportMap[game.sport_key] || { key: 'other', name: game.sport_title };
+        if (sportInfo.key === 'skip') return;
+
+        // Find the sharpest available book
+        let sharpBook = null;
+        for (const key of sharpBookOrder) {
+            sharpBook = bookmakers.find(b => b.key === key);
+            if (sharpBook) break;
+        }
+
+        if (!sharpBook && bookmakers.length >= 2) {
+            sharpBook = bookmakers[0];
+        }
+
+        if (!sharpBook) return;
+
         const softBooks = bookmakers.filter(b =>
-            ['fanduel', 'draftkings', 'betmgm', 'caesars'].includes(b.key)
+            softBookKeys.includes(b.key) && b.key !== sharpBook.key
         );
 
-        if (!pinnacle || softBooks.length === 0) return;
+        if (softBooks.length === 0) return;
 
-        // Check h2h (moneyline) market
-        const pinnacleH2h = pinnacle.markets?.find(m => m.key === 'h2h');
-        if (!pinnacleH2h) return;
+        // Format game time for display
+        const gameTimeStr = gameTime.toLocaleString('en-US', {
+            weekday: 'short',
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit'
+        });
 
-        softBooks.forEach(softBook => {
-            const softH2h = softBook.markets?.find(m => m.key === 'h2h');
-            if (!softH2h) return;
+        // Get all markets from sharp book
+        const sharpMarkets = sharpBook.markets || [];
 
-            softH2h.outcomes.forEach((outcome, i) => {
-                const pinnacleOutcome = pinnacleH2h.outcomes.find(o => o.name === outcome.name);
-                if (!pinnacleOutcome) return;
+        // Process each market (h2h and player props)
+        sharpMarkets.forEach(sharpMarket => {
+            const marketKey = sharpMarket.key;
+            const isPlayerProp = marketKey.startsWith('player_') ||
+                                 marketKey.startsWith('pitcher_') ||
+                                 marketKey.startsWith('batter_');
 
-                const softOdds = outcome.price;
-                const sharpOdds = pinnacleOutcome.price;
+            softBooks.forEach(softBook => {
+                const softMarket = softBook.markets?.find(m => m.key === marketKey);
+                if (!softMarket) return;
 
-                // Calculate if there's value
-                const softProb = americanToProb(softOdds);
-                const sharpProb = americanToProb(sharpOdds);
-                const edge = (sharpProb - softProb) * 100;
+                softMarket.outcomes.forEach(outcome => {
+                    // Skip draw outcomes
+                    if (outcome.name === 'Draw') return;
 
-                if (edge > 2) { // Only show if 2%+ edge
-                    liveValueBets.push({
-                        sport: 'nba',
-                        sportName: 'NBA',
-                        event: `${game.home_team} vs ${game.away_team}`,
-                        betType: 'Moneyline',
-                        category: 'game',
-                        selection: `${outcome.name} ${softOdds > 0 ? '+' : ''}${softOdds}`,
-                        odds: softOdds,
-                        sharpOdds: sharpOdds,
-                        softBook: formatBookName(softBook.key),
-                        sharpBook: 'Pinnacle',
-                        trueProb: sharpProb,
-                        ev: edge,
-                        confidence: Math.min(95, 60 + edge * 3),
-                        isLive: false
-                    });
-                }
+                    // For player props, match by description (player name + line)
+                    let sharpOutcome;
+                    if (isPlayerProp) {
+                        sharpOutcome = sharpMarket.outcomes.find(o =>
+                            o.description === outcome.description &&
+                            o.name === outcome.name
+                        );
+                    } else {
+                        sharpOutcome = sharpMarket.outcomes.find(o => o.name === outcome.name);
+                    }
+
+                    if (!sharpOutcome) return;
+
+                    const softOdds = outcome.price;
+                    const sharpOdds = sharpOutcome.price;
+
+                    // Calculate value
+                    const softProb = americanToProb(softOdds);
+                    const sharpProb = americanToProb(sharpOdds);
+                    const edge = (sharpProb - softProb) * 100;
+
+                    // Only show if 2%+ edge and odds are reasonable
+                    if (edge > 2 && Math.abs(softOdds) < 5000) {
+                        const ev = edge;
+
+                        // Build selection string
+                        let selection, betType, category;
+                        if (isPlayerProp) {
+                            // Player prop: "LeBron James O25.5 pts +105"
+                            const playerName = outcome.description?.split(' ').slice(0, 2).join(' ') || 'Player';
+                            const line = outcome.point !== undefined ? outcome.point : '';
+                            const overUnder = outcome.name === 'Over' ? 'O' : 'U';
+                            selection = `${playerName} ${overUnder}${line} ${softOdds > 0 ? '+' : ''}${softOdds}`;
+                            betType = propMarketNames[marketKey] || 'Player Prop';
+                            category = 'player_prop';
+                        } else {
+                            // Game line: "Team Name +105"
+                            selection = `${outcome.name} ${softOdds > 0 ? '+' : ''}${softOdds}`;
+                            betType = 'Moneyline';
+                            category = 'game';
+                        }
+
+                        liveValueBets.push({
+                            sport: sportInfo.key,
+                            sportName: sportInfo.name,
+                            event: `${game.away_team} @ ${game.home_team}`,
+                            betType: betType,
+                            category: category,
+                            selection: selection,
+                            odds: softOdds,
+                            sharpOdds: sharpOdds,
+                            softBook: formatBookName(softBook.key),
+                            sharpBook: formatBookName(sharpBook.key),
+                            trueProb: sharpProb,
+                            ev: ev,
+                            confidence: Math.min(95, 60 + edge * 3),
+                            isLive: false,
+                            gameTime: gameTimeStr
+                        });
+                    }
+                });
             });
         });
     });
+
+    // Sort by EV descending
+    liveValueBets.sort((a, b) => b.ev - a.ev);
 
     if (liveValueBets.length > 0) {
         // Replace demo data with live data
         valueBets.length = 0;
         valueBets.push(...liveValueBets);
         renderBets(valueBets);
+        updateTimestamp();
+
+        // Update status
+        document.getElementById('apiStatus').innerHTML = `
+            <span class="status-dot connected"></span>
+            <span>Live - ${liveValueBets.length} value bets found</span>
+            <button class="icon-btn" onclick="fetchLiveOdds()" title="Refresh">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+            </button>
+        `;
+    } else {
+        // No value bets found - keep demo data but notify user
+        document.getElementById('apiStatus').innerHTML = `
+            <span class="status-dot connected"></span>
+            <span>Live - No value bets found right now</span>
+            <button class="icon-btn" onclick="fetchLiveOdds()" title="Refresh">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+            </button>
+        `;
+        updateTimestamp();
     }
 }
 
 function formatBookName(key) {
     const names = {
+        // US Legal
         'fanduel': 'FanDuel',
         'draftkings': 'DraftKings',
         'betmgm': 'BetMGM',
         'caesars': 'Caesars',
-        'pointsbet': 'PointsBet',
-        'betrivers': 'BetRivers'
+        'pointsbetus': 'PointsBet',
+        'betrivers': 'BetRivers',
+        'unibet_us': 'Unibet',
+        'williamhill_us': 'William Hill',
+        'wynnbet': 'WynnBet',
+        'superbook': 'SuperBook',
+        'betfred': 'Betfred',
+        'twinspires': 'TwinSpires',
+        'foxbet': 'FOX Bet',
+        // Sharp Books
+        'pinnacle': 'Pinnacle',
+        'circa': 'Circa',
+        'bookmaker': 'Bookmaker',
+        'betonlineag': 'BetOnline',
+        'lowvig': 'LowVig',
+        // Offshore
+        'bovada': 'Bovada',
+        'mybookieag': 'MyBookie',
+        'betus': 'BetUS',
+        'gtbets': 'GTBets',
+        'intertops': 'Intertops',
+        // International
+        'bet365': 'Bet365',
+        'betfair': 'Betfair',
+        'unibet': 'Unibet',
+        'ladbrokes': 'Ladbrokes',
+        'williamhill': 'William Hill',
+        'paddypower': 'Paddy Power',
+        'betsson': 'Betsson',
+        '888sport': '888sport',
+        'betway': 'Betway',
+        'sportsbet': 'Sportsbet',
+        'neds': 'Neds',
+        'pointsbet': 'PointsBet AU',
+        'tab': 'TAB'
     };
-    return names[key] || key;
+    return names[key] || key.charAt(0).toUpperCase() + key.slice(1);
 }
 
 // Helper to get current filtered bets
@@ -716,23 +1150,69 @@ function getConfidenceClass(confidence) {
 function updateStats(bets) {
     document.getElementById('totalBets').textContent = bets.length;
 
-    const avgEV = bets.reduce((sum, bet) => sum + bet.ev, 0) / bets.length;
+    const avgEV = bets.length > 0
+        ? bets.reduce((sum, bet) => sum + bet.ev, 0) / bets.length
+        : 0;
     document.getElementById('avgEV').textContent = `+${avgEV.toFixed(1)}%`;
 
-    const totalProfit = bets.reduce((sum, bet) => sum + calculateProfit(bet.odds, 100) * (bet.ev / 100), 0);
-    document.getElementById('potentialProfit').textContent = `$${totalProfit.toFixed(2)}`;
+    // Calculate total expected profit based on Kelly bet sizes
+    const bankroll = getBankroll();
+    const totalExpectedProfit = bets.reduce((sum, bet) => {
+        const kelly = calculateKellyBetSize(bet.odds, bet.trueProb, bankroll);
+        return sum + (kelly.amount * (bet.ev / 100));
+    }, 0);
+    document.getElementById('potentialProfit').textContent = `$${totalExpectedProfit.toFixed(0)}`;
 }
 
 // Filter bets
 function filterBets() {
     const filtered = getFilteredBets();
     renderBets(filtered);
+    updateActiveFiltersCount();
+}
+
+// Reset all filters to default
+function resetFilters() {
+    document.getElementById('sportFilter').value = 'all';
+    document.getElementById('categoryFilter').value = 'all';
+    document.getElementById('evFilter').value = 'all';
+    document.getElementById('sortBy').value = 'ev';
+    filterBets();
+}
+
+// Show/hide reset button based on active filters
+function updateActiveFiltersCount() {
+    const sport = document.getElementById('sportFilter').value;
+    const category = document.getElementById('categoryFilter').value;
+    const ev = document.getElementById('evFilter').value;
+
+    let activeCount = 0;
+    if (sport !== 'all') activeCount++;
+    if (category !== 'all') activeCount++;
+    if (ev !== 'all') activeCount++;
+
+    const resetBtn = document.getElementById('resetBtn');
+    if (resetBtn) {
+        resetBtn.style.display = activeCount > 0 ? 'flex' : 'none';
+    }
 }
 
 // Add filter event listeners
 document.getElementById('sportFilter').addEventListener('change', filterBets);
 document.getElementById('categoryFilter').addEventListener('change', filterBets);
 document.getElementById('evFilter').addEventListener('change', filterBets);
+document.getElementById('sortBy').addEventListener('change', filterBets);
+
+// Update timestamp
+function updateTimestamp() {
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const dateStr = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const timestampEl = document.getElementById('lastUpdated');
+    if (timestampEl) {
+        timestampEl.textContent = `Last updated: ${dateStr} at ${timeStr}`;
+    }
+}
 
 // Close modals when clicking outside
 window.onclick = function(event) {
@@ -753,8 +1233,10 @@ function checkSavedApiKey() {
         apiKey = savedKey;
         document.getElementById('apiStatus').innerHTML = `
             <span class="status-dot connected"></span>
-            <span>API Connected</span>
-            <button class="api-btn" onclick="fetchLiveOdds()">Fetch Live Odds</button>
+            <span>API Ready</span>
+            <button class="icon-btn" onclick="fetchLiveOdds()" title="Fetch Live Odds">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+            </button>
         `;
     }
 }
@@ -773,13 +1255,13 @@ function calculateEV() {
 
     document.getElementById('impliedProb').textContent = `${(impliedProb * 100).toFixed(1)}%`;
     document.getElementById('evValue').textContent = `$${ev.toFixed(2)}`;
-    document.getElementById('evValue').style.color = ev > 0 ? 'var(--accent-green)' : 'var(--accent-red)';
+    document.getElementById('evValue').style.color = ev > 0 ? 'var(--profit)' : 'var(--loss)';
     document.getElementById('evEdge').textContent = `${edge > 0 ? '+' : ''}${edge.toFixed(2)}%`;
-    document.getElementById('evEdge').style.color = edge > 0 ? 'var(--accent-green)' : 'var(--accent-red)';
+    document.getElementById('evEdge').style.color = edge > 0 ? 'var(--profit)' : 'var(--loss)';
 
     const verdict = ev > 0 ? 'VALUE BET - Place it!' : 'NO VALUE - Skip';
     document.getElementById('evVerdict').textContent = verdict;
-    document.getElementById('evVerdict').style.color = ev > 0 ? 'var(--accent-green)' : 'var(--accent-red)';
+    document.getElementById('evVerdict').style.color = ev > 0 ? 'var(--gold-400)' : 'var(--loss)';
 }
 
 // Kelly Criterion Calculator
@@ -877,18 +1359,18 @@ function calculateArb() {
         const profit = payout - totalStake;
 
         document.getElementById('arbExists').textContent = 'YES';
-        document.getElementById('arbExists').style.color = 'var(--accent-green)';
+        document.getElementById('arbExists').style.color = 'var(--profit)';
         document.getElementById('arbBet1').textContent = `$${stake1.toFixed(2)}`;
         document.getElementById('arbBet2').textContent = `$${stake2.toFixed(2)}`;
         document.getElementById('arbProfit').textContent = `$${profit.toFixed(2)} (${((profit / totalStake) * 100).toFixed(2)}%)`;
-        document.getElementById('arbProfit').style.color = 'var(--accent-green)';
+        document.getElementById('arbProfit').style.color = 'var(--profit)';
     } else {
         document.getElementById('arbExists').textContent = 'NO';
-        document.getElementById('arbExists').style.color = 'var(--accent-red)';
+        document.getElementById('arbExists').style.color = 'var(--loss)';
         document.getElementById('arbBet1').textContent = '--';
         document.getElementById('arbBet2').textContent = '--';
         document.getElementById('arbProfit').textContent = `Loss: ${((impliedSum - 1) * 100).toFixed(2)}% edge to books`;
-        document.getElementById('arbProfit').style.color = 'var(--accent-red)';
+        document.getElementById('arbProfit').style.color = 'var(--loss)';
     }
 }
 
@@ -896,4 +1378,5 @@ function calculateArb() {
 document.addEventListener('DOMContentLoaded', () => {
     renderBets(valueBets);
     checkSavedApiKey();
+    updateTimestamp();
 });
