@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sports Betting Strategy Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Sports Betting Strategy Dashboard</h1>
+            <p class="subtitle">Data-Driven Analysis for Smarter Betting Decisions</p>
+        </header>
+
+        <nav class="tabs">
+            <button class="tab active" data-tab="recommended">Recommended Bets</button>
+            <button class="tab" data-tab="strategies">Strategies</button>
+            <button class="tab" data-tab="sports">Sport Analysis</button>
+            <button class="tab" data-tab="calculator">Calculator</button>
+        </nav>
+
+        <!-- Recommended Bets Tab -->
+        <section id="recommended" class="tab-content active">
+            <div class="section-header">
+                <h2>Today's Value Bets</h2>
+                <div class="filters">
+                    <select id="sportFilter">
+                        <option value="all">All Sports</option>
+                        <option value="mlb">MLB</option>
+                        <option value="nba">NBA</option>
+                        <option value="ncaab">College Basketball</option>
+                        <option value="nfl">NFL</option>
+                    </select>
+                    <select id="categoryFilter">
+                        <option value="all">All Bet Types</option>
+                        <option value="game">Game Outcomes</option>
+                        <option value="player_prop">Player Props</option>
+                        <option value="derivative">Derivatives (1H, Alt)</option>
+                        <option value="future">Futures</option>
+                        <option value="live">Live Bets</option>
+                    </select>
+                    <select id="evFilter">
+                        <option value="all">All EV</option>
+                        <option value="high">High EV (5%+)</option>
+                        <option value="medium">Medium EV (2-5%)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- API Status -->
+            <div class="api-status" id="apiStatus">
+                <span class="status-dot"></span>
+                <span>Demo Mode - Add API key for live odds</span>
+                <button class="api-btn" onclick="showApiModal()">Connect API</button>
+            </div>
+
+            <div class="stats-row">
+                <div class="stat-card">
+                    <span class="stat-value" id="totalBets">0</span>
+                    <span class="stat-label">Value Bets Found</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value" id="avgEV">0%</span>
+                    <span class="stat-label">Average EV</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value" id="potentialProfit">$0</span>
+                    <span class="stat-label">Potential Profit ($100/bet)</span>
+                </div>
+            </div>
+
+            <div class="bets-table-container">
+                <table class="bets-table">
+                    <thead>
+                        <tr>
+                            <th>Type</th>
+                            <th>Event</th>
+                            <th>Selection</th>
+                            <th>Odds Comparison</th>
+                            <th>Edge</th>
+                            <th>EV%</th>
+                            <th>Profit ($100)</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="betsTableBody">
+                        <!-- Populated by JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Odds Comparison Detail Modal -->
+            <div class="modal" id="oddsModal">
+                <div class="modal-content">
+                    <span class="close-modal" onclick="closeModal()">&times;</span>
+                    <h3 id="modalTitle">Odds Breakdown</h3>
+                    <div id="modalBody"></div>
+                </div>
+            </div>
+
+            <!-- API Key Modal -->
+            <div class="modal" id="apiModal">
+                <div class="modal-content">
+                    <span class="close-modal" onclick="closeApiModal()">&times;</span>
+                    <h3>Connect to The Odds API</h3>
+                    <p>Get real-time odds from 70+ sportsbooks. Free tier: 500 requests/month.</p>
+                    <div class="input-group">
+                        <label for="apiKeyInput">API Key</label>
+                        <input type="text" id="apiKeyInput" placeholder="Enter your API key">
+                    </div>
+                    <p class="api-signup">Don't have a key? <a href="https://the-odds-api.com/" target="_blank">Sign up free at The Odds API</a></p>
+                    <button class="calc-btn" onclick="connectApi()">Connect & Fetch Live Odds</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Strategies Tab -->
+        <section id="strategies" class="tab-content">
+            <h2>Betting Strategies Ranked by Profitability</h2>
+
+            <div class="strategy-cards">
+                <div class="strategy-card featured">
+                    <div class="strategy-header">
+                        <span class="rank">#1</span>
+                        <h3>Sharp vs Soft Book Value Betting</h3>
+                        <span class="badge success">Pro Strategy</span>
+                    </div>
+                    <p class="description">Use sharp sportsbooks (Pinnacle, Circa) as the "source of truth" for true odds. Find discrepancies at soft books (DraftKings, FanDuel, BetMGM) that are slow to adjust their lines. When a soft book's odds differ significantly from a sharp book, that's exploitable value.</p>
+                    <div class="strategy-stats">
+                        <div class="strategy-stat">
+                            <span class="label">Long-term ROI</span>
+                            <span class="value positive">+5-12%</span>
+                        </div>
+                        <div class="strategy-stat">
+                            <span class="label">Risk Level</span>
+                            <span class="value">Medium</span>
+                        </div>
+                        <div class="strategy-stat">
+                            <span class="label">Accounts Needed</span>
+                            <span class="value">5-10 books</span>
+                        </div>
+                    </div>
+                    <div class="book-comparison">
+                        <div class="book-type sharp">
+                            <strong>Sharp Books (Benchmark)</strong>
+                            <ul>
+                                <li>Pinnacle</li>
+                                <li>Circa</li>
+                                <li>Bookmaker/CRIS</li>
+                                <li>BetOnline</li>
+                            </ul>
+                        </div>
+                        <div class="book-type soft">
+                            <strong>Soft Books (Exploit)</strong>
+                            <ul>
+                                <li>DraftKings</li>
+                                <li>FanDuel</li>
+                                <li>BetMGM</li>
+                                <li>Caesars</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="formula">
+                        <strong>How it works:</strong> If Pinnacle has Team A at -150 but FanDuel still shows +120, bet FanDuel immediately before they adjust.
+                    </div>
+                    <div class="tools-list">
+                        <strong>Tools:</strong> <a href="https://oddsjam.com/" target="_blank">OddsJam</a> | <a href="https://unabated.com/" target="_blank">Unabated</a> | <a href="https://www.actionnetwork.com/" target="_blank">Action Network</a>
+                    </div>
+                </div>
+
+                <div class="strategy-card featured">
+                    <div class="strategy-header">
+                        <span class="rank">#2</span>
+                        <h3>Positive EV (+EV) Betting</h3>
+                        <span class="badge success">Recommended</span>
+                    </div>
+                    <p class="description">Bet only when the odds offered exceed the true probability of the outcome. Use Pinnacle's no-vig lines as true probability. Over time, this guarantees mathematical profit.</p>
+                    <div class="strategy-stats">
+                        <div class="strategy-stat">
+                            <span class="label">Long-term ROI</span>
+                            <span class="value positive">+3-8%</span>
+                        </div>
+                        <div class="strategy-stat">
+                            <span class="label">Risk Level</span>
+                            <span class="value">Medium</span>
+                        </div>
+                        <div class="strategy-stat">
+                            <span class="label">Volume Needed</span>
+                            <span class="value">High (500+ bets)</span>
+                        </div>
+                    </div>
+                    <div class="formula">
+                        <strong>Formula:</strong> EV = (Probability × Potential Win) - (1 - Probability) × Stake
+                    </div>
+                </div>
+
+                <div class="strategy-card">
+                    <div class="strategy-header">
+                        <span class="rank">#3</span>
+                        <h3>Closing Line Value (CLV)</h3>
+                        <span class="badge info">Advanced</span>
+                    </div>
+                    <p class="description">Beat the closing line by betting early when you spot value. If you consistently get better odds than the close, you're profitable.</p>
+                    <div class="strategy-stats">
+                        <div class="strategy-stat">
+                            <span class="label">Long-term ROI</span>
+                            <span class="value positive">+2-6%</span>
+                        </div>
+                        <div class="strategy-stat">
+                            <span class="label">Risk Level</span>
+                            <span class="value">Medium-High</span>
+                        </div>
+                        <div class="strategy-stat">
+                            <span class="label">Skill Needed</span>
+                            <span class="value">Expert</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="strategy-card">
+                    <div class="strategy-header">
+                        <span class="rank">#4</span>
+                        <h3>Arbitrage Betting</h3>
+                        <span class="badge warning">Risk-Free</span>
+                    </div>
+                    <p class="description">Bet on all outcomes across different sportsbooks to guarantee profit regardless of result. Requires multiple accounts.</p>
+                    <div class="strategy-stats">
+                        <div class="strategy-stat">
+                            <span class="label">Per-Bet ROI</span>
+                            <span class="value positive">+1-3%</span>
+                        </div>
+                        <div class="strategy-stat">
+                            <span class="label">Risk Level</span>
+                            <span class="value">Very Low</span>
+                        </div>
+                        <div class="strategy-stat">
+                            <span class="label">Capital Needed</span>
+                            <span class="value">$5,000+</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="strategy-card">
+                    <div class="strategy-header">
+                        <span class="rank">#5</span>
+                        <h3>Line Shopping</h3>
+                        <span class="badge">Essential</span>
+                    </div>
+                    <p class="description">Compare odds across multiple sportsbooks and always bet at the best available price. Simple but effective.</p>
+                    <div class="strategy-stats">
+                        <div class="strategy-stat">
+                            <span class="label">ROI Improvement</span>
+                            <span class="value positive">+1-2%</span>
+                        </div>
+                        <div class="strategy-stat">
+                            <span class="label">Difficulty</span>
+                            <span class="value">Easy</span>
+                        </div>
+                        <div class="strategy-stat">
+                            <span class="label">Accounts Needed</span>
+                            <span class="value">3-5 books</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="strategy-card avoid">
+                    <div class="strategy-header">
+                        <span class="rank">Avoid</span>
+                        <h3>Parlays & Teasers</h3>
+                        <span class="badge danger">High Edge</span>
+                    </div>
+                    <p class="description">Multi-leg bets compound the house edge. Sportsbooks love parlay bettors because they're highly profitable for the house.</p>
+                    <div class="strategy-stats">
+                        <div class="strategy-stat">
+                            <span class="label">House Edge</span>
+                            <span class="value negative">15-30%</span>
+                        </div>
+                        <div class="strategy-stat">
+                            <span class="label">Win Rate</span>
+                            <span class="value negative">Very Low</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Sport Analysis Tab -->
+        <section id="sports" class="tab-content">
+            <h2>Sports Ranked by Profitability</h2>
+            <p class="section-intro">Based on market efficiency, data availability, and historical beatable patterns.</p>
+
+            <div class="sport-rankings">
+                <div class="sport-rank-card tier-1">
+                    <div class="tier-label">Tier 1: Most Profitable</div>
+
+                    <div class="sport-item">
+                        <div class="sport-icon">⚾</div>
+                        <div class="sport-info">
+                            <h3>MLB Baseball</h3>
+                            <p>Underdogs win 43% of games. Predictable patterns after 2 weeks into season. Best for moneylines.</p>
+                        </div>
+                        <div class="sport-metrics">
+                            <div class="metric">
+                                <span class="metric-value">A+</span>
+                                <span class="metric-label">Edge Potential</span>
+                            </div>
+                            <div class="metric">
+                                <span class="metric-value">2,430</span>
+                                <span class="metric-label">Games/Year</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="sport-item">
+                        <div class="sport-icon">🏀</div>
+                        <div class="sport-info">
+                            <h3>College Basketball (NCAAB)</h3>
+                            <p>Softest lines in sports. Non-conference games are "gold mines". Thousands of games, less sharp money.</p>
+                        </div>
+                        <div class="sport-metrics">
+                            <div class="metric">
+                                <span class="metric-value">A+</span>
+                                <span class="metric-label">Edge Potential</span>
+                            </div>
+                            <div class="metric">
+                                <span class="metric-value">5,000+</span>
+                                <span class="metric-label">Games/Year</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="sport-rank-card tier-2">
+                    <div class="tier-label">Tier 2: Good Opportunities</div>
+
+                    <div class="sport-item">
+                        <div class="sport-icon">🏀</div>
+                        <div class="sport-info">
+                            <h3>NBA Basketball</h3>
+                            <p>Player props are highly beatable. High volume with 82 games/team. Lineup changes create inefficiencies.</p>
+                        </div>
+                        <div class="sport-metrics">
+                            <div class="metric">
+                                <span class="metric-value">A</span>
+                                <span class="metric-label">Edge Potential</span>
+                            </div>
+                            <div class="metric">
+                                <span class="metric-value">1,230</span>
+                                <span class="metric-label">Games/Year</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="sport-item">
+                        <div class="sport-icon">🎾</div>
+                        <div class="sport-info">
+                            <h3>Tennis</h3>
+                            <p>Individual sport = easier analysis. Great for live betting. Focus on player form and surface preference.</p>
+                        </div>
+                        <div class="sport-metrics">
+                            <div class="metric">
+                                <span class="metric-value">A-</span>
+                                <span class="metric-label">Edge Potential</span>
+                            </div>
+                            <div class="metric">
+                                <span class="metric-value">2,500+</span>
+                                <span class="metric-label">Matches/Year</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="sport-rank-card tier-3">
+                    <div class="tier-label">Tier 3: Moderate</div>
+
+                    <div class="sport-item">
+                        <div class="sport-icon">🏈</div>
+                        <div class="sport-info">
+                            <h3>NFL Football</h3>
+                            <p>Most popular = sharpest lines. Favorites win often. Best edges in player props and alt lines.</p>
+                        </div>
+                        <div class="sport-metrics">
+                            <div class="metric">
+                                <span class="metric-value">B+</span>
+                                <span class="metric-label">Edge Potential</span>
+                            </div>
+                            <div class="metric">
+                                <span class="metric-value">272</span>
+                                <span class="metric-label">Games/Year</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="sport-rank-card tier-4">
+                    <div class="tier-label">Tier 4: Difficult</div>
+
+                    <div class="sport-item">
+                        <div class="sport-icon">🏒</div>
+                        <div class="sport-info">
+                            <h3>NHL Hockey</h3>
+                            <p>High variance, low scoring. One lucky bounce decides games. Totals slightly more predictable than sides.</p>
+                        </div>
+                        <div class="sport-metrics">
+                            <div class="metric">
+                                <span class="metric-value">C+</span>
+                                <span class="metric-label">Edge Potential</span>
+                            </div>
+                            <div class="metric">
+                                <span class="metric-value">1,312</span>
+                                <span class="metric-label">Games/Year</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Calculator Tab -->
+        <section id="calculator" class="tab-content">
+            <h2>Betting Calculators</h2>
+
+            <div class="calculators-grid">
+                <div class="calculator-card">
+                    <h3>Expected Value (EV) Calculator</h3>
+                    <div class="calc-inputs">
+                        <div class="input-group">
+                            <label for="evOdds">American Odds</label>
+                            <input type="number" id="evOdds" placeholder="+150" value="+150">
+                        </div>
+                        <div class="input-group">
+                            <label for="evProb">True Win Probability (%)</label>
+                            <input type="number" id="evProb" placeholder="45" value="45" min="1" max="99">
+                        </div>
+                        <div class="input-group">
+                            <label for="evStake">Stake ($)</label>
+                            <input type="number" id="evStake" placeholder="100" value="100">
+                        </div>
+                    </div>
+                    <button class="calc-btn" onclick="calculateEV()">Calculate EV</button>
+                    <div class="calc-result" id="evResult">
+                        <div class="result-row">
+                            <span>Implied Probability:</span>
+                            <span id="impliedProb">--</span>
+                        </div>
+                        <div class="result-row">
+                            <span>Expected Value:</span>
+                            <span id="evValue">--</span>
+                        </div>
+                        <div class="result-row">
+                            <span>Edge:</span>
+                            <span id="evEdge">--</span>
+                        </div>
+                        <div class="result-row verdict">
+                            <span>Verdict:</span>
+                            <span id="evVerdict">--</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="calculator-card">
+                    <h3>Kelly Criterion Calculator</h3>
+                    <p class="calc-description">Optimal bet sizing based on edge and bankroll</p>
+                    <div class="calc-inputs">
+                        <div class="input-group">
+                            <label for="kellyOdds">American Odds</label>
+                            <input type="number" id="kellyOdds" placeholder="+150" value="+150">
+                        </div>
+                        <div class="input-group">
+                            <label for="kellyProb">Win Probability (%)</label>
+                            <input type="number" id="kellyProb" placeholder="45" value="45" min="1" max="99">
+                        </div>
+                        <div class="input-group">
+                            <label for="kellyBankroll">Bankroll ($)</label>
+                            <input type="number" id="kellyBankroll" placeholder="1000" value="1000">
+                        </div>
+                    </div>
+                    <button class="calc-btn" onclick="calculateKelly()">Calculate Kelly</button>
+                    <div class="calc-result" id="kellyResult">
+                        <div class="result-row">
+                            <span>Full Kelly:</span>
+                            <span id="fullKelly">--</span>
+                        </div>
+                        <div class="result-row">
+                            <span>Half Kelly (Safer):</span>
+                            <span id="halfKelly">--</span>
+                        </div>
+                        <div class="result-row">
+                            <span>Quarter Kelly (Conservative):</span>
+                            <span id="quarterKelly">--</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="calculator-card">
+                    <h3>Odds Converter</h3>
+                    <div class="calc-inputs">
+                        <div class="input-group">
+                            <label for="convertOdds">Enter Odds</label>
+                            <input type="text" id="convertOdds" placeholder="+150" value="+150">
+                        </div>
+                        <div class="input-group">
+                            <label for="oddsFormat">Format</label>
+                            <select id="oddsFormat">
+                                <option value="american">American (+150)</option>
+                                <option value="decimal">Decimal (2.50)</option>
+                                <option value="fractional">Fractional (3/2)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button class="calc-btn" onclick="convertOdds()">Convert</button>
+                    <div class="calc-result" id="convertResult">
+                        <div class="result-row">
+                            <span>American:</span>
+                            <span id="americanOdds">--</span>
+                        </div>
+                        <div class="result-row">
+                            <span>Decimal:</span>
+                            <span id="decimalOdds">--</span>
+                        </div>
+                        <div class="result-row">
+                            <span>Fractional:</span>
+                            <span id="fractionalOdds">--</span>
+                        </div>
+                        <div class="result-row">
+                            <span>Implied Probability:</span>
+                            <span id="convertProb">--</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="calculator-card">
+                    <h3>Arbitrage Calculator</h3>
+                    <div class="calc-inputs">
+                        <div class="input-group">
+                            <label for="arbOdds1">Outcome 1 Odds (American)</label>
+                            <input type="number" id="arbOdds1" placeholder="+150" value="+150">
+                        </div>
+                        <div class="input-group">
+                            <label for="arbOdds2">Outcome 2 Odds (American)</label>
+                            <input type="number" id="arbOdds2" placeholder="-130" value="-130">
+                        </div>
+                        <div class="input-group">
+                            <label for="arbTotal">Total Investment ($)</label>
+                            <input type="number" id="arbTotal" placeholder="1000" value="1000">
+                        </div>
+                    </div>
+                    <button class="calc-btn" onclick="calculateArb()">Check Arbitrage</button>
+                    <div class="calc-result" id="arbResult">
+                        <div class="result-row">
+                            <span>Arbitrage Exists:</span>
+                            <span id="arbExists">--</span>
+                        </div>
+                        <div class="result-row">
+                            <span>Bet on Outcome 1:</span>
+                            <span id="arbBet1">--</span>
+                        </div>
+                        <div class="result-row">
+                            <span>Bet on Outcome 2:</span>
+                            <span id="arbBet2">--</span>
+                        </div>
+                        <div class="result-row">
+                            <span>Guaranteed Profit:</span>
+                            <span id="arbProfit">--</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <footer>
+            <p>Data sources: <a href="https://the-odds-api.com/" target="_blank">The Odds API</a> | Strategies based on research from <a href="https://www.vegasodds.com/blog/best-us-sports-to-bet-on-by-reddit/" target="_blank">Reddit communities</a></p>
+            <p class="disclaimer">For educational purposes only. Gamble responsibly. Past performance does not guarantee future results.</p>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
