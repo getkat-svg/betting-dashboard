@@ -1041,9 +1041,10 @@ function processLiveOdds(data) {
     // Sort by EV descending
     liveValueBets.sort((a, b) => b.ev - a.ev);
 
+    // Always clear demo data when processing live odds
+    valueBets.length = 0;
+
     if (liveValueBets.length > 0) {
-        // Replace demo data with live data
-        valueBets.length = 0;
         valueBets.push(...liveValueBets);
         renderBets(valueBets);
         updateTimestamp();
@@ -1057,10 +1058,20 @@ function processLiveOdds(data) {
             </button>
         `;
     } else {
-        // No value bets found - keep demo data but notify user
+        // No value bets found - show empty state
+        document.getElementById('betsTableBody').innerHTML = `
+            <tr>
+                <td colspan="9" style="text-align: center; padding: 60px 20px; color: var(--text-muted);">
+                    <div style="font-size: 2rem; margin-bottom: 12px;">📊</div>
+                    <div style="font-size: 1.1rem; font-weight: 600; margin-bottom: 8px;">No Value Bets Right Now</div>
+                    <div style="font-size: 0.85rem;">Sharp and soft books are aligned. Check back later for opportunities.</div>
+                </td>
+            </tr>
+        `;
+        updateStats([]);
         document.getElementById('apiStatus').innerHTML = `
             <span class="status-dot connected"></span>
-            <span>Live - No value bets found right now</span>
+            <span>Live - No value bets</span>
             <button class="icon-btn" onclick="fetchLiveOdds()" title="Refresh">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
             </button>
