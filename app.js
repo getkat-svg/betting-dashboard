@@ -671,9 +671,15 @@ async function connectApi() {
     await fetchLiveOdds();
 }
 
+// Check if we're on Netlify (has serverless function available)
+const isNetlify = window.location.hostname.includes('netlify.app') ||
+                  window.location.hostname.includes('netlify.com');
+
 // Fetch live odds from The Odds API
 async function fetchLiveOdds() {
-    if (!apiKey) return;
+    // On Netlify, we use the serverless function (no API key needed)
+    // Locally, we need an API key
+    if (!isNetlify && !apiKey) return;
 
     const statusEl = document.getElementById('apiStatus');
     statusEl.innerHTML = `
@@ -709,11 +715,14 @@ async function fetchLiveOdds() {
     try {
         // Fetch from each sport - both h2h and player props
         for (const sport of sportsToFetch) {
+            // Build URL - use Netlify function or direct API
+            const h2hUrl = isNetlify
+                ? `/.netlify/functions/odds-api?sport=${sport}&markets=h2h`
+                : `https://api.the-odds-api.com/v4/sports/${sport}/odds/?apiKey=${apiKey}&regions=us,us2&markets=h2h&oddsFormat=american&bookmakers=pinnacle,circa,fanduel,draftkings,betmgm,caesars,pointsbetus,betrivers,bovada`;
+
             // Fetch game lines (h2h)
             try {
-                const response = await fetch(
-                    `https://api.the-odds-api.com/v4/sports/${sport}/odds/?apiKey=${apiKey}&regions=us,us2&markets=h2h&oddsFormat=american&bookmakers=pinnacle,circa,fanduel,draftkings,betmgm,caesars,pointsbetus,betrivers,bovada`
-                );
+                const response = await fetch(h2hUrl);
 
                 // Get remaining requests from headers regardless of status
                 const reqRemaining = response.headers.get('x-requests-remaining');
@@ -730,7 +739,7 @@ async function fetchLiveOdds() {
                     const errorData = await response.json().catch(() => ({}));
                     lastError = {
                         status: response.status,
-                        message: errorData.message || response.statusText
+                        message: errorData.message || errorData.error || response.statusText
                     };
                     console.log(`API error for ${sport}: ${response.status} - ${lastError.message}`);
 
@@ -756,10 +765,12 @@ async function fetchLiveOdds() {
                 (remaining === null || parseInt(remaining) > 20);
 
             if (shouldFetchProps) {
+                const propsUrl = isNetlify
+                    ? `/.netlify/functions/odds-api?sport=${sport}&markets=${propMarkets[sport]}`
+                    : `https://api.the-odds-api.com/v4/sports/${sport}/odds/?apiKey=${apiKey}&regions=us,us2&markets=${propMarkets[sport]}&oddsFormat=american&bookmakers=pinnacle,fanduel,draftkings,betmgm,caesars,pointsbetus,betrivers`;
+
                 try {
-                    const response = await fetch(
-                        `https://api.the-odds-api.com/v4/sports/${sport}/odds/?apiKey=${apiKey}&regions=us,us2&markets=${propMarkets[sport]}&oddsFormat=american&bookmakers=pinnacle,fanduel,draftkings,betmgm,caesars,pointsbetus,betrivers`
-                    );
+                    const response = await fetch(propsUrl);
 
                     const reqRemaining = response.headers.get('x-requests-remaining');
                     if (reqRemaining) remaining = reqRemaining;
@@ -1388,6 +1399,13 @@ function calculateArb() {
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     renderBets(valueBets);
-    checkSavedApiKey();
     updateTimestamp();
+
+    if (isNetlify) {
+        // On Netlify, auto-fetch live data (API key is on server)
+        fetchLiveOdds();
+    } else {
+        // Locally, check for saved API key
+        checkSavedApiKey();
+    }
 });
