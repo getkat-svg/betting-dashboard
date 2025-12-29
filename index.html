@@ -49,6 +49,9 @@
                             <input type="number" id="mainBankroll" value="1000" min="100" step="100" onchange="updateBetSizes()">
                         </div>
                     </div>
+                    <button class="icon-btn" onclick="showNotificationSettings()" title="Notification Settings">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                    </button>
                     <div class="status-indicator" id="apiStatus">
                         <span class="status-dot"></span>
                         <span>Demo</span>
@@ -147,6 +150,101 @@
                     <p class="api-signup">Don't have a key? <a href="https://the-odds-api.com/" target="_blank">Sign up free at The Odds API</a></p>
                     <p class="api-signup">Or test the API directly: <code>curl "https://api.the-odds-api.com/v4/sports/upcoming/odds/?apiKey=YOUR_KEY&regions=us&markets=h2h"</code></p>
                     <button class="calc-btn" onclick="connectApi()">Load Data</button>
+                </div>
+            </div>
+
+            <!-- Notification Settings Modal -->
+            <div class="modal" id="notificationModal">
+                <div class="modal-content">
+                    <span class="close-modal" onclick="closeNotificationModal()">&times;</span>
+                    <h3>Edge Notifications</h3>
+                    <p class="modal-description">Get alerted when new +EV opportunities are found. Each channel is independent.</p>
+
+                    <div class="notification-settings">
+                        <!-- Desktop Notifications -->
+                        <div class="notification-option">
+                            <div class="notification-header">
+                                <div class="notification-icon">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                                </div>
+                                <div class="notification-info">
+                                    <span class="notification-title">Desktop</span>
+                                    <span class="notification-desc">Browser push notifications</span>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="desktopNotifications" onchange="toggleDesktopNotifications()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="notification-status" id="desktopStatus"></div>
+                        </div>
+
+                        <!-- Mobile Push Notifications -->
+                        <div class="notification-option">
+                            <div class="notification-header">
+                                <div class="notification-icon">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+                                </div>
+                                <div class="notification-info">
+                                    <span class="notification-title">Mobile Push</span>
+                                    <span class="notification-desc">iOS & Android notifications</span>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="mobileNotifications" onchange="toggleMobileNotifications()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="notification-status" id="mobileStatus"></div>
+                        </div>
+
+                        <!-- Email Notifications -->
+                        <div class="notification-option">
+                            <div class="notification-header">
+                                <div class="notification-icon">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                                </div>
+                                <div class="notification-info">
+                                    <span class="notification-title">Email</span>
+                                    <span class="notification-desc">Daily digest or instant alerts</span>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="emailNotifications" onchange="toggleEmailNotifications()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="email-settings" id="emailSettings" style="display: none;">
+                                <div class="input-group">
+                                    <label for="emailAddress">Email Address</label>
+                                    <input type="email" id="emailAddress" placeholder="your@email.com">
+                                </div>
+                                <div class="input-group">
+                                    <label for="emailFrequency">Frequency</label>
+                                    <select id="emailFrequency">
+                                        <option value="instant">Instant (each bet)</option>
+                                        <option value="hourly">Hourly digest</option>
+                                        <option value="daily">Daily digest</option>
+                                    </select>
+                                </div>
+                                <button class="calc-btn small" onclick="saveEmailSettings()">Save Email Settings</button>
+                            </div>
+                            <div class="notification-status" id="emailStatus"></div>
+                        </div>
+                    </div>
+
+                    <!-- Notification Preferences -->
+                    <div class="notification-preferences">
+                        <h4>Alert Thresholds</h4>
+                        <div class="input-group">
+                            <label for="minEvThreshold">Minimum EV% to notify</label>
+                            <input type="number" id="minEvThreshold" value="3" min="1" max="20" step="0.5">
+                        </div>
+                        <div class="input-group">
+                            <label for="minEdgeThreshold">Minimum Edge% to notify</label>
+                            <input type="number" id="minEdgeThreshold" value="2" min="1" max="10" step="0.5">
+                        </div>
+                    </div>
+
+                    <button class="calc-btn" onclick="saveNotificationPreferences()">Save Preferences</button>
                 </div>
             </div>
         </section>

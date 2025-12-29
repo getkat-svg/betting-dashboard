@@ -1060,6 +1060,9 @@ function processLiveOdds(data) {
         renderBets(valueBets);
         updateTimestamp();
 
+        // Check for new bets and send notifications
+        checkForNewBets(liveValueBets);
+
         // Update status
         document.getElementById('apiStatus').innerHTML = `
             <span class="status-dot connected"></span>
@@ -1396,6 +1399,276 @@ function calculateArb() {
     }
 }
 
+// ========================================
+// NOTIFICATION SYSTEM
+// ========================================
+
+// Notification preferences stored in localStorage
+const notificationPrefs = {
+    desktop: localStorage.getItem('notify_desktop') === 'true',
+    mobile: localStorage.getItem('notify_mobile') === 'true',
+    email: localStorage.getItem('notify_email') === 'true',
+    emailAddress: localStorage.getItem('notify_email_address') || '',
+    emailFrequency: localStorage.getItem('notify_email_frequency') || 'instant',
+    minEv: parseFloat(localStorage.getItem('notify_min_ev')) || 3,
+    minEdge: parseFloat(localStorage.getItem('notify_min_edge')) || 2
+};
+
+// Track bets we've already notified about
+const notifiedBets = new Set(JSON.parse(localStorage.getItem('notified_bets') || '[]'));
+
+// Show notification modal
+function showNotificationSettings() {
+    document.getElementById('notificationModal').style.display = 'flex';
+    loadNotificationSettings();
+}
+
+// Close notification modal
+function closeNotificationModal() {
+    document.getElementById('notificationModal').style.display = 'none';
+}
+
+// Load saved notification settings into the UI
+function loadNotificationSettings() {
+    document.getElementById('desktopNotifications').checked = notificationPrefs.desktop;
+    document.getElementById('mobileNotifications').checked = notificationPrefs.mobile;
+    document.getElementById('emailNotifications').checked = notificationPrefs.email;
+    document.getElementById('emailAddress').value = notificationPrefs.emailAddress;
+    document.getElementById('emailFrequency').value = notificationPrefs.emailFrequency;
+    document.getElementById('minEvThreshold').value = notificationPrefs.minEv;
+    document.getElementById('minEdgeThreshold').value = notificationPrefs.minEdge;
+
+    // Show/hide email settings based on toggle
+    document.getElementById('emailSettings').style.display =
+        notificationPrefs.email ? 'flex' : 'none';
+
+    // Update status displays
+    updateDesktopStatus();
+    updateMobileStatus();
+    updateEmailStatus();
+}
+
+// Toggle desktop notifications
+async function toggleDesktopNotifications() {
+    const checkbox = document.getElementById('desktopNotifications');
+    const statusEl = document.getElementById('desktopStatus');
+
+    if (checkbox.checked) {
+        // Request permission
+        if (!('Notification' in window)) {
+            checkbox.checked = false;
+            showStatus(statusEl, 'Your browser does not support desktop notifications', 'error');
+            return;
+        }
+
+        if (Notification.permission === 'denied') {
+            checkbox.checked = false;
+            showStatus(statusEl, 'Notifications are blocked. Please enable them in your browser settings.', 'error');
+            return;
+        }
+
+        if (Notification.permission !== 'granted') {
+            const permission = await Notification.requestPermission();
+            if (permission !== 'granted') {
+                checkbox.checked = false;
+                showStatus(statusEl, 'Permission denied. Enable notifications in browser settings.', 'error');
+                return;
+            }
+        }
+
+        notificationPrefs.desktop = true;
+        localStorage.setItem('notify_desktop', 'true');
+        showStatus(statusEl, 'Desktop notifications enabled! You\'ll be alerted when new edges are found.', 'success');
+
+        // Send test notification
+        new Notification('Edge Alerts Enabled', {
+            body: 'You will receive alerts when +EV bets are found.',
+            icon: '📊'
+        });
+    } else {
+        notificationPrefs.desktop = false;
+        localStorage.setItem('notify_desktop', 'false');
+        statusEl.className = 'notification-status';
+    }
+}
+
+// Update desktop status display
+function updateDesktopStatus() {
+    const statusEl = document.getElementById('desktopStatus');
+    if (notificationPrefs.desktop && Notification.permission === 'granted') {
+        showStatus(statusEl, 'Desktop notifications are active', 'success');
+    }
+}
+
+// Toggle mobile push notifications
+function toggleMobileNotifications() {
+    const checkbox = document.getElementById('mobileNotifications');
+    const statusEl = document.getElementById('mobileStatus');
+
+    if (checkbox.checked) {
+        // Mobile push requires service worker and push subscription
+        // For now, show info about PWA installation
+        showStatus(statusEl, 'To enable mobile push: Install this app to your home screen (Add to Home Screen). Push notifications coming soon!', 'info');
+        notificationPrefs.mobile = true;
+        localStorage.setItem('notify_mobile', 'true');
+    } else {
+        notificationPrefs.mobile = false;
+        localStorage.setItem('notify_mobile', 'false');
+        statusEl.className = 'notification-status';
+    }
+}
+
+// Update mobile status display
+function updateMobileStatus() {
+    const statusEl = document.getElementById('mobileStatus');
+    if (notificationPrefs.mobile) {
+        showStatus(statusEl, 'Mobile push notifications are enabled (requires PWA installation)', 'info');
+    }
+}
+
+// Toggle email notifications
+function toggleEmailNotifications() {
+    const checkbox = document.getElementById('emailNotifications');
+    const settingsEl = document.getElementById('emailSettings');
+    const statusEl = document.getElementById('emailStatus');
+
+    if (checkbox.checked) {
+        settingsEl.style.display = 'flex';
+        notificationPrefs.email = true;
+        localStorage.setItem('notify_email', 'true');
+    } else {
+        settingsEl.style.display = 'none';
+        notificationPrefs.email = false;
+        localStorage.setItem('notify_email', 'false');
+        statusEl.className = 'notification-status';
+    }
+}
+
+// Save email settings
+function saveEmailSettings() {
+    const email = document.getElementById('emailAddress').value.trim();
+    const frequency = document.getElementById('emailFrequency').value;
+    const statusEl = document.getElementById('emailStatus');
+
+    if (!email || !email.includes('@')) {
+        showStatus(statusEl, 'Please enter a valid email address', 'error');
+        return;
+    }
+
+    notificationPrefs.emailAddress = email;
+    notificationPrefs.emailFrequency = frequency;
+    localStorage.setItem('notify_email_address', email);
+    localStorage.setItem('notify_email_frequency', frequency);
+
+    showStatus(statusEl, `Email notifications will be sent to ${email} (${frequency})`, 'success');
+}
+
+// Update email status display
+function updateEmailStatus() {
+    const statusEl = document.getElementById('emailStatus');
+    if (notificationPrefs.email && notificationPrefs.emailAddress) {
+        showStatus(statusEl, `Sending alerts to ${notificationPrefs.emailAddress}`, 'success');
+    }
+}
+
+// Save notification preferences (thresholds)
+function saveNotificationPreferences() {
+    const minEv = parseFloat(document.getElementById('minEvThreshold').value);
+    const minEdge = parseFloat(document.getElementById('minEdgeThreshold').value);
+
+    notificationPrefs.minEv = minEv;
+    notificationPrefs.minEdge = minEdge;
+    localStorage.setItem('notify_min_ev', minEv.toString());
+    localStorage.setItem('notify_min_edge', minEdge.toString());
+
+    closeNotificationModal();
+
+    // Show confirmation
+    if (notificationPrefs.desktop && Notification.permission === 'granted') {
+        new Notification('Preferences Saved', {
+            body: `You'll be notified for bets with ${minEv}%+ EV and ${minEdge}%+ edge.`,
+            icon: '📊'
+        });
+    }
+}
+
+// Helper to show status message
+function showStatus(el, message, type) {
+    el.textContent = message;
+    el.className = `notification-status active ${type}`;
+}
+
+// Check for new bets and send notifications
+function checkForNewBets(bets) {
+    if (!bets || bets.length === 0) return;
+
+    const newBets = bets.filter(bet => {
+        const betId = `${bet.event}-${bet.selection}-${bet.softBook}`;
+        const meetsThreshold = bet.ev >= notificationPrefs.minEv &&
+                               ((americanToProb(bet.sharpOdds) - americanToProb(bet.odds)) * 100) >= notificationPrefs.minEdge;
+
+        if (meetsThreshold && !notifiedBets.has(betId)) {
+            notifiedBets.add(betId);
+            return true;
+        }
+        return false;
+    });
+
+    // Save notified bets (keep last 100)
+    const notifiedArray = Array.from(notifiedBets).slice(-100);
+    localStorage.setItem('notified_bets', JSON.stringify(notifiedArray));
+
+    if (newBets.length === 0) return;
+
+    // Send desktop notification
+    if (notificationPrefs.desktop && Notification.permission === 'granted') {
+        const bet = newBets[0]; // Show first bet
+        const title = newBets.length > 1
+            ? `${newBets.length} New Value Bets Found!`
+            : `+${bet.ev.toFixed(1)}% EV: ${bet.sportName}`;
+
+        const body = newBets.length > 1
+            ? `${bet.selection} at ${bet.softBook} and ${newBets.length - 1} more...`
+            : `${bet.selection} at ${bet.softBook}`;
+
+        new Notification(title, {
+            body: body,
+            icon: '📊',
+            tag: 'edge-alert',
+            requireInteraction: true
+        });
+    }
+
+    // Send email notification (via Netlify function)
+    if (notificationPrefs.email && notificationPrefs.emailAddress && isNetlify) {
+        sendEmailNotification(newBets);
+    }
+}
+
+// Send email notification via Netlify function
+async function sendEmailNotification(bets) {
+    try {
+        await fetch('/.netlify/functions/send-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                email: notificationPrefs.emailAddress,
+                frequency: notificationPrefs.emailFrequency,
+                bets: bets.map(b => ({
+                    sport: b.sportName,
+                    event: b.event,
+                    selection: b.selection,
+                    odds: b.odds,
+                    ev: b.ev,
+                    softBook: b.softBook
+                }))
+            })
+        });
+    } catch (e) {
+        console.log('Email notification failed:', e.message);
+    }
+}
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     renderBets(valueBets);
@@ -1408,4 +1681,11 @@ document.addEventListener('DOMContentLoaded', () => {
         // Locally, check for saved API key
         checkSavedApiKey();
     }
+
+    // Close modal when clicking outside
+    document.getElementById('notificationModal').addEventListener('click', (e) => {
+        if (e.target.id === 'notificationModal') {
+            closeNotificationModal();
+        }
+    });
 });
